@@ -201,6 +201,3 @@ with tab_foto:
         c2.metric("Hombre", total_h)
         c3.metric("Mujer", total_m)
         st.image(cv2.cvtColor(res_img, cv2.COLOR_BGR2RGB), use_container_width=True)
-    )
-
-with tab_foto:
