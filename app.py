@@ -181,3 +181,26 @@ with tab_vivo:
     )
 
 with tab_foto:
+    fuente = st.radio("Selecciona origen:", ["Tomar foto con cámara", "Subir imagen"], horizontal=True)
+    archivo = (
+        st.camera_input("Capturar rostro")
+        if fuente == "Tomar foto con cámara"
+        else st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png", "webp"])
+    )
+
+    if archivo is not None:
+        bytes_img = np.asarray(bytearray(archivo.read()), dtype=np.uint8)
+        frame_img = cv2.imdecode(bytes_img, cv2.IMREAD_COLOR)
+        if fuente == "Tomar foto con cámara":
+            frame_img = cv2.flip(frame_img, 1)
+        res_img, total_rostros, total_h, total_m = detectar_rostros(
+            frame_img, net_dnn, haar_face, net_genero, metodo, conf_min
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Rostros detectados", total_rostros)
+        c2.metric("Hombre", total_h)
+        c3.metric("Mujer", total_m)
+        st.image(cv2.cvtColor(res_img, cv2.COLOR_BGR2RGB), use_container_width=True)
+    )
+
+with tab_foto:
