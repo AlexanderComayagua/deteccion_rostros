@@ -155,39 +155,108 @@ conf_min = 0.50
 tab_vivo, tab_foto = st.tabs(["Cámara en Vivo (Tiempo Real)", "Captura / Subir Imagen"])
 
 with tab_vivo:
-    st.info("Haz clic en **Iniciar Cámara** para activar la detección en tiempo real directamente en tu navegador.")
+    st.info("Haz clic en **Iniciar Cámara** para detectar rostros y clasificar **Hombre / Mujer** en tiempo real.")
     components.html(
         """
         <div style="text-align:center;font-family:sans-serif;">
-          <button id="btnCam" style="padding:10px 20px;font-size:15px;background:#1f77b4;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:10px;">
+          <button id="btnCam" style="padding:10px 22px;font-size:15px;background:#1f77b4;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:10px;">
             Iniciar Cámara
           </button>
+          <p id="status" style="color:#ccc;font-size:13px;margin:4px 0 10px 0;">Cargando modelos de detección facial y género...</p>
           <div style="position:relative;display:inline-block;max-width:100%;">
-            <video id="vid" autoplay playsinline muted style="width:640px;max-width:100%;border-radius:8px;transform:scaleX(-1);background:#111;"></video>
+            <video id="vid" autoplay playsinline muted style="width:640px;max-width:100%;border-radius:8px;transform:scaleX(-1);background:#111;display:block;"></video>
+            <canvas id="canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
           </div>
-          <p id="status" style="color:#aaa;font-size:13px;margin-top:6px;">Cámara en espera</p>
         </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
         <script>
+          const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
           const btn = document.getElementById('btnCam');
           const vid = document.getElementById('vid');
+          const canvas = document.getElementById('canvas');
+          const ctx = canvas.getContext('2d');
           const status = document.getElementById('status');
+
           let stream = null;
+          let running = false;
+          let modelsLoaded = false;
+
+          async function loadModels() {
+            await Promise.all([
+              faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+              faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL)
+            ]);
+            modelsLoaded = true;
+            status.textContent = 'Modelos listos. Presiona "Iniciar Cámara".';
+          }
+          loadModels();
+
+          async function detectLoop() {
+            if (!running) return;
+            if (vid.readyState === 4 && modelsLoaded) {
+              canvas.width = vid.videoWidth;
+              canvas.height = vid.videoHeight;
+              const dets = await faceapi
+                .detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                .withAgeAndGender();
+
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              let hombres = 0, mujeres = 0;
+
+              dets.forEach(d => {
+                const box = d.detection.box;
+                // Espejo horizontal en coordenada X para coincidir con el video volteado
+                const x = canvas.width - box.x - box.width;
+                const y = box.y;
+                const esHombre = d.gender === 'male';
+                if (esHombre) hombres++; else mujeres++;
+
+                const generoTxt = esHombre ? 'Hombre' : 'Mujer';
+                const conf = Math.round(d.genderProbability * 100);
+                const color = esHombre ? '#2882dc' : '#dc46b4';
+                const label = `${generoTxt} (${conf}%)`;
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, box.width, box.height);
+
+                ctx.font = 'bold 16px sans-serif';
+                const tw = ctx.measureText(label).width;
+                const yTop = Math.max(0, y - 26);
+                ctx.fillStyle = color;
+                ctx.fillRect(x, yTop, tw + 12, 26);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(label, x + 6, yTop + 18);
+              });
+
+              ctx.fillStyle = 'rgba(15, 20, 28, 0.8)';
+              ctx.fillRect(0, 0, canvas.width, 30);
+              ctx.fillStyle = '#ffffff';
+              ctx.font = 'bold 15px sans-serif';
+              ctx.fillText(`Rostros: ${dets.length} | Hombre: ${hombres} | Mujer: ${mujeres}`, 10, 20);
+            }
+            requestAnimationFrame(detectLoop);
+          }
 
           btn.onclick = async () => {
-            if (!stream) {
+            if (!running) {
               try {
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 vid.srcObject = stream;
+                running = true;
                 btn.textContent = 'Detener Cámara';
                 btn.style.background = '#d9534f';
-                status.textContent = 'Cámara activa';
+                status.textContent = 'Detección en vivo activa';
+                detectLoop();
               } catch (e) {
                 status.textContent = 'Error al acceder a la cámara: ' + e.message;
               }
             } else {
-              stream.getTracks().forEach(t => t.stop());
+              running = false;
+              if (stream) stream.getTracks().forEach(t => t.stop());
               vid.srcObject = null;
-              stream = null;
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
               btn.textContent = 'Iniciar Cámara';
               btn.style.background = '#1f77b4';
               status.textContent = 'Cámara detenida';
