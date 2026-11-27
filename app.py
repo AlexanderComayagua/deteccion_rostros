@@ -158,20 +158,23 @@ with tab_vivo:
     st.info("Haz clic en **Iniciar Cámara** para detectar rostros y clasificar **Hombre / Mujer** en tiempo real.")
     components.html(
         """
-        <div style="text-align:center;font-family:sans-serif;">
-          <button id="btnCam" style="padding:10px 22px;font-size:15px;background:#1f77b4;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:10px;">
+        <div style="text-align:center;font-family:sans-serif;color:#fff;">
+          <button id="btnCam" style="padding:10px 22px;font-size:15px;background:#1f77b4;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:8px;">
             Iniciar Cámara
           </button>
-          <p id="status" style="color:#ccc;font-size:13px;margin:4px 0 10px 0;">Cargando modelos de detección facial y género...</p>
+          <p id="status" style="color:#ffd166;font-size:13px;margin:4px 0 10px 0;">Preparando entorno...</p>
           <div style="position:relative;display:inline-block;max-width:100%;">
             <video id="vid" autoplay playsinline muted style="width:640px;max-width:100%;border-radius:8px;transform:scaleX(-1);background:#111;display:block;"></video>
             <canvas id="canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
           </div>
         </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+        <script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
         <script>
-          const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+          const MODEL_URLS = [
+            'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights',
+            'https://justadudewhohacks.github.io/face-api.js/models'
+          ];
           const btn = document.getElementById('btnCam');
           const vid = document.getElementById('vid');
           const canvas = document.getElementById('canvas');
@@ -183,58 +186,78 @@ with tab_vivo:
           let modelsLoaded = false;
 
           async function loadModels() {
-            await Promise.all([
-              faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-              faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL)
-            ]);
-            modelsLoaded = true;
-            status.textContent = 'Modelos listos. Presiona "Iniciar Cámara".';
+            if (typeof faceapi === 'undefined') {
+              status.textContent = 'Error: El navegador bloqueó el script externo (revisa conexión o bloqueador).';
+              return;
+            }
+            for (const url of MODEL_URLS) {
+              try {
+                status.textContent = 'Descargando redes neuronales...';
+                await Promise.all([
+                  faceapi.nets.tinyFaceDetector.loadFromUri(url),
+                  faceapi.nets.ageGenderNet.loadFromUri(url)
+                ]);
+                modelsLoaded = true;
+                status.style.color = '#06d6a0';
+                status.textContent = 'Modelos listos. Presiona "Iniciar Cámara".';
+                return;
+              } catch (err) {
+                console.warn('Fallo con', url, err);
+              }
+            }
+            status.style.color = '#ef476f';
+            status.textContent = 'No se pudieron descargar los pesos del modelo.';
           }
           loadModels();
 
           async function detectLoop() {
             if (!running) return;
-            if (vid.readyState === 4 && modelsLoaded) {
-              canvas.width = vid.videoWidth;
-              canvas.height = vid.videoHeight;
-              const dets = await faceapi
-                .detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-                .withAgeAndGender();
+            if (vid.readyState >= 2 && vid.videoWidth > 0 && modelsLoaded) {
+              if (canvas.width !== vid.videoWidth) {
+                canvas.width = vid.videoWidth;
+                canvas.height = vid.videoHeight;
+              }
+              try {
+                const dets = await faceapi
+                  .detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+                  .withAgeAndGender();
 
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              let hombres = 0, mujeres = 0;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                let hombres = 0, mujeres = 0;
 
-              dets.forEach(d => {
-                const box = d.detection.box;
-                // Espejo horizontal en coordenada X para coincidir con el video volteado
-                const x = canvas.width - box.x - box.width;
-                const y = box.y;
-                const esHombre = d.gender === 'male';
-                if (esHombre) hombres++; else mujeres++;
+                dets.forEach(d => {
+                  const box = d.detection.box;
+                  const x = canvas.width - box.x - box.width;
+                  const y = box.y;
+                  const esHombre = d.gender === 'male';
+                  if (esHombre) hombres++; else mujeres++;
 
-                const generoTxt = esHombre ? 'Hombre' : 'Mujer';
-                const conf = Math.round(d.genderProbability * 100);
-                const color = esHombre ? '#2882dc' : '#dc46b4';
-                const label = `${generoTxt} (${conf}%)`;
+                  const generoTxt = esHombre ? 'Hombre' : 'Mujer';
+                  const conf = Math.round(d.genderProbability * 100);
+                  const color = esHombre ? '#2882dc' : '#dc46b4';
+                  const label = `${generoTxt} (${conf}%)`;
 
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 3;
-                ctx.strokeRect(x, y, box.width, box.height);
+                  ctx.strokeStyle = color;
+                  ctx.lineWidth = 3;
+                  ctx.strokeRect(x, y, box.width, box.height);
 
-                ctx.font = 'bold 16px sans-serif';
-                const tw = ctx.measureText(label).width;
-                const yTop = Math.max(0, y - 26);
-                ctx.fillStyle = color;
-                ctx.fillRect(x, yTop, tw + 12, 26);
+                  ctx.font = 'bold 16px sans-serif';
+                  const tw = ctx.measureText(label).width;
+                  const yTop = Math.max(0, y - 26);
+                  ctx.fillStyle = color;
+                  ctx.fillRect(x, yTop, tw + 12, 26);
+                  ctx.fillStyle = '#ffffff';
+                  ctx.fillText(label, x + 6, yTop + 18);
+                });
+
+                ctx.fillStyle = 'rgba(15, 20, 28, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, 30);
                 ctx.fillStyle = '#ffffff';
-                ctx.fillText(label, x + 6, yTop + 18);
-              });
-
-              ctx.fillStyle = 'rgba(15, 20, 28, 0.8)';
-              ctx.fillRect(0, 0, canvas.width, 30);
-              ctx.fillStyle = '#ffffff';
-              ctx.font = 'bold 15px sans-serif';
-              ctx.fillText(`Rostros: ${dets.length} | Hombre: ${hombres} | Mujer: ${mujeres}`, 10, 20);
+                ctx.font = 'bold 15px sans-serif';
+                ctx.fillText(`Rostros: ${dets.length} | Hombre: ${hombres} | Mujer: ${mujeres}`, 10, 20);
+              } catch (e) {
+                status.textContent = 'Error en inferencia: ' + e.message;
+              }
             }
             requestAnimationFrame(detectLoop);
           }
@@ -244,10 +267,13 @@ with tab_vivo:
               try {
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 vid.srcObject = stream;
+                await vid.play();
                 running = true;
                 btn.textContent = 'Detener Cámara';
                 btn.style.background = '#d9534f';
-                status.textContent = 'Detección en vivo activa';
+                if (modelsLoaded) {
+                  status.textContent = 'Detección en vivo activa';
+                }
                 detectLoop();
               } catch (e) {
                 status.textContent = 'Error al acceder a la cámara: ' + e.message;
