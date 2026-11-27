@@ -143,17 +143,13 @@ def detectar_rostros(frame_bgr, net_dnn, haar_face, net_genero, metodo, conf_min
     return img, len(cajas), hombres, mujeres
 
 st.title("Aplicación Web de Detección de Rostros y Género")
-st.caption("Detección facial y clasificación Hombre / Mujer con Python, OpenCV y Streamlit")
+st.caption("Cristopher Alexander Flores Miranda")
 
 net_dnn, haar_face, net_genero = cargar_detectores()
 
-with st.sidebar:
-    st.header("Parámetros de Detección")
-    metodo = st.selectbox(
-        "Detector facial de OpenCV:",
-        ["OpenCV DNN (ResNet-10 SSD)", "OpenCV Haar Cascade"]
-    )
-    conf_min = st.slider("Umbral mínimo de confianza (DNN)", 0.25, 0.95, 0.50, 0.05)
+# Parámetros fijos (sin barra lateral)
+metodo = "OpenCV DNN (ResNet-10 SSD)"
+conf_min = 0.50
 
 tab_vivo, tab_foto = st.tabs(["Cámara en Vivo (Tiempo Real)", "Captura / Subir Imagen"])
 
@@ -170,31 +166,18 @@ with tab_vivo:
         key="opencv-face-gender-detector",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=RTCConfiguration(
-            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+            {
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                    {"urls": ["stun:stun1.l.google.com:19302"]},
+                    {"urls": ["stun:stun2.l.google.com:19302"]},
+                ]
+            }
         ),
+        video_html_attrs={"autoPlay": True, "controls": False, "muted": True},
         video_frame_callback=video_frame_callback,
         media_stream_constraints={"video": {"width": 640, "height": 480}, "audio": False},
         async_processing=True,
     )
 
 with tab_foto:
-    fuente = st.radio("Selecciona origen:", ["Tomar foto con cámara", "Subir imagen"], horizontal=True)
-    archivo = (
-        st.camera_input("Capturar rostro")
-        if fuente == "Tomar foto con cámara"
-        else st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png", "webp"])
-    )
-
-    if archivo is not None:
-        bytes_img = np.asarray(bytearray(archivo.read()), dtype=np.uint8)
-        frame_img = cv2.imdecode(bytes_img, cv2.IMREAD_COLOR)
-        if fuente == "Tomar foto con cámara":
-            frame_img = cv2.flip(frame_img, 1)
-        res_img, total_rostros, total_h, total_m = detectar_rostros(
-            frame_img, net_dnn, haar_face, net_genero, metodo, conf_min
-        )
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Rostros detectados", total_rostros)
-        c2.metric("Hombre", total_h)
-        c3.metric("Mujer", total_m)
-        st.image(cv2.cvtColor(res_img, cv2.COLOR_BGR2RGB), use_container_width=True)
