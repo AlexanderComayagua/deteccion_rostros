@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Detección de Rostros y Género - OpenCV & Streamlit",
@@ -154,30 +155,47 @@ conf_min = 0.50
 tab_vivo, tab_foto = st.tabs(["Cámara en Vivo (Tiempo Real)", "Captura / Subir Imagen"])
 
 with tab_vivo:
-    st.info("Presiona **START** y autoriza el acceso a tu cámara web.")
+    st.info("Haz clic en **Iniciar Cámara** para activar la detección en tiempo real directamente en tu navegador.")
+    components.html(
+        """
+        <div style="text-align:center;font-family:sans-serif;">
+          <button id="btnCam" style="padding:10px 20px;font-size:15px;background:#1f77b4;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:10px;">
+            Iniciar Cámara
+          </button>
+          <div style="position:relative;display:inline-block;max-width:100%;">
+            <video id="vid" autoplay playsinline muted style="width:640px;max-width:100%;border-radius:8px;transform:scaleX(-1);background:#111;"></video>
+          </div>
+          <p id="status" style="color:#aaa;font-size:13px;margin-top:6px;">Cámara en espera</p>
+        </div>
+        <script>
+          const btn = document.getElementById('btnCam');
+          const vid = document.getElementById('vid');
+          const status = document.getElementById('status');
+          let stream = null;
 
-    def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1)
-        img_proc, _, _, _ = detectar_rostros(img, net_dnn, haar_face, net_genero, metodo, conf_min)
-        return av.VideoFrame.from_ndarray(img_proc, format="bgr24")
-
-    webrtc_streamer(
-        key="opencv-face-gender-detector",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTCConfiguration(
-            {
-                "iceServers": [
-                    {"urls": ["stun:stun.l.google.com:19302"]},
-                    {"urls": ["stun:stun1.l.google.com:19302"]},
-                    {"urls": ["stun:stun2.l.google.com:19302"]},
-                ]
+          btn.onclick = async () => {
+            if (!stream) {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                vid.srcObject = stream;
+                btn.textContent = 'Detener Cámara';
+                btn.style.background = '#d9534f';
+                status.textContent = 'Cámara activa';
+              } catch (e) {
+                status.textContent = 'Error al acceder a la cámara: ' + e.message;
+              }
+            } else {
+              stream.getTracks().forEach(t => t.stop());
+              vid.srcObject = null;
+              stream = null;
+              btn.textContent = 'Iniciar Cámara';
+              btn.style.background = '#1f77b4';
+              status.textContent = 'Cámara detenida';
             }
-        ),
-        video_html_attrs={"autoPlay": True, "controls": False, "muted": True},
-        video_frame_callback=video_frame_callback,
-        media_stream_constraints={"video": {"width": 640, "height": 480}, "audio": False},
-        async_processing=True,
+          };
+        </script>
+        """,
+        height=560,
     )
 
 with tab_foto:
